@@ -34,7 +34,7 @@ error = norm(P_n_est - P_n, 'fro')
 
 %% Iterative Closest Point
 %knnsearch
-while error > 1e-5*np
+for i = 1:100
     
     knnind = knnsearch(Md_tree, P_n_est');
     
@@ -46,7 +46,7 @@ while error > 1e-5*np
     
     %here trimmed points
     %P_n_trim = P_n(:, knnind(indeff))';
-    P_n_trim = P_n';
+    P_n_trim = P_n(:, knnind)';
     %P_m_trim = P_m(:, indeff);
     P_m_trim = P_m;
     
