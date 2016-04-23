@@ -26,7 +26,7 @@ episilonRANSAC = 35;
 axang_episilon = 0.001;
 mean_error_thresh = 0.03;
 
-%% For all the frames
+%% Do many times
 
 for k = 1:nframes
     fprintf('frame %d\n', k)
@@ -51,7 +51,6 @@ for k = 1:nframes
     % (Please don't worry too much about difference between "actualy camera" and
     % "camera model". Just do not remove the line below.)
     P_ = s_cam3*[pcx pcy pcz]*[0 0 1;-1 0 0;0 -1 0]'*R_cv3 + repmat(t_cv3,length(pcx),1);
-    
     %convert measured points in to world frame
     R_CW = quat2rotm(qcam);
     P_ = bsxfun(@plus, R_CW * P_', xcam')';
@@ -71,7 +70,7 @@ for k = 1:nframes
     
     
     %do ransac 500 times
-    for i = 1:1000
+    for i = 1:500
         %pick 3 random points
         picks = randsample(numpts, 3);
         PointsPicked = P_(picks, :);
@@ -96,7 +95,7 @@ for k = 1:nframes
     %find the center of gravity and clean up anything that is too far out
     P_center = mean(P_meas, 1);
     d_c = sum((bsxfun(@minus, P_meas, P_center).^2), 2);
-    ind = (d_c - mean(d_c)) < 1.5*std(d_c);
+    ind = (d_c - mean(d_c)) < 2*std(d_c);
     
     % pre calculate this for ICP
     P_meas = P_meas(ind, :);
@@ -114,18 +113,67 @@ for k = 1:nframes
     % you may use KDTreeSearcher and knnsearch for correspondence search.
     
     if k == 1
+        
+        % space to search for EM
         num_ipose = 10;
         num_zoff = 10;
         yaws = linspace(0, 2*pi, num_ipose);
         zoffs = linspace(-10, 10, num_zoff);
+        
+        %initialize parameters that stores the best results
         error_best = inf;
         R_best = eye(3);
         T_best = zeros(3, 1);
-        term_early = 0;
-        [npmeas, ~] = size(P_meas);
+        term_early = 0; % flag that signify whether i can terminate early
+        
+        [npmeas, ~] = size(P_meas); %number of measured points (after floor removal)
+        
+        %construct KD tree of the model
+        disp('Constructing KD tree from model point cloud...\n')
         drill_tree = KDTreeSearcher(P_model);
         
+        %calculate normal for each point in the model
+        disp('Constructing matlab ptcloud model...')
+        PO_model = pointCloud(P_model);
+        PO_meas = pointCloud(P_meas);
+        disp('Calculating normal vectors for each point in the model...\n')
+        N_model = pcnormals(PO_model);
+        N_meas = pcnormals(PO_meas);
+        
+        %bin normals
+        disp('Binning Normal...10 bins for both polar and azimuth')
+        
+        %model
+        phi_model = acos(N_model(:, 3));
+        theta_model = atan2(N_model(:,2), N_model(:,1));
+        bin_model = ceil(10*((phi_model)./(pi/10) - 1) + (theta_model+pi)./(2*pi/10));
+        %bin_model_cell = cell(100,1);
+        
+        %measured
+        phi_meas = acos(N_meas(:, 3));
+        theta_meas = atan2(N_meas(:,2), N_meas(:,1));
+        bin_meas = ceil(10*((phi_meas)./(pi/10) - 1) + (theta_meas+pi)./(2*pi/10));
+        %bin_meas_cell = cell(100,1);
+        
+        %randomly sample from each bin now let's do 2000 samples
+        num_sample = 2000;
+        sample_model = zeros(num_sample, 3);
+        sample_meas = zeros(num_sample, 3);
+        
+        
+        for b = 1:100
+            sample_model = datasample(P_model(bin_model == b, :), num_sample/100, 1);
+            sample_meas = datasample(P_model(bin_meas == b, :), num_sample/100, 1);
+            %bin_model_cell{b} = P_model(bin_model == b, :);
+            %bin_meas_cell{b} = P_meas(bin_meas == b, :);
+        end
+        
+        
+        %Do normal space sampling to get a good starting point
+        
+        
         %get initial pose by just shifting the measured points
+        %{
         eul = [0, 0, 0];
         R_rough = eul2rotm(eul);
         P_rough = (R_rough*Q_meas)';
@@ -143,6 +191,7 @@ for k = 1:nframes
         
         C_rough = mean(P_rough, 2);
         Q_rough = bsxfun(@minus, P_rough, C_rough);
+        %}
     else
         %use the results from last iteration
         error_best = inf;
